@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Garde-manger — planificateur sous contrainte budgétaire</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1d1c1a; --muted:#6b6862; --line:#e6e3dd;
+    --panel:#faf9f7; --accent:#2f6f4e; --warn:#b06c1e; --bad:#a8372c;
+    --chip:#f0eee9;
+    --r:10px;
+    font-synthesis-weight:none;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#191919; --fg:#e9e7e3; --muted:#9a968e; --line:#2f2f2d;
+           --panel:#202020; --accent:#6fbf8f; --warn:#d9973f; --bad:#e0695c; --chip:#262625; }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--fg)}
+  body{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Helvetica,Arial,sans-serif;padding:18px;}
+  h1{font-size:17px;margin:0 0 2px;letter-spacing:-.01em}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:22px 0 8px;font-weight:600}
+  .sub{color:var(--muted);font-size:12.5px;margin:0 0 16px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+
+  /* slider */
+  .budgetwrap{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  .bignum{font-size:34px;font-weight:650;letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums}
+  .bignum span{font-size:15px;font-weight:450;color:var(--muted)}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:5px;border-radius:3px;background:var(--line);outline:none;margin:14px 0 6px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:var(--fg);cursor:grab;border:3px solid var(--bg);box-shadow:0 0 0 1px var(--line)}
+  input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:var(--fg);cursor:grab;border:3px solid var(--bg)}
+  .ticks{display:flex;justify-content:space-between;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+
+  /* kpis */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-top:14px}
+  .kpi{background:var(--bg);padding:11px 12px}
+  .kpi .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .kpi .v{font-size:19px;font-weight:620;font-variant-numeric:tabular-nums;margin-top:3px;letter-spacing:-.01em}
+
+  /* gauge */
+  .gauge{height:9px;border-radius:5px;background:var(--line);overflow:hidden;position:relative;margin:10px 0 0}
+  .gauge i{display:block;height:100%;border-radius:5px;transition:width .25s ease,background .25s ease}
+  .floormark{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--fg);opacity:.55}
+  .verdict{margin-top:11px;padding:11px 13px;border-radius:8px;border-left:3px solid;font-size:13px}
+  .v-bad{background:color-mix(in srgb,var(--bad) 9%,transparent);border-color:var(--bad)}
+  .v-warn{background:color-mix(in srgb,var(--warn) 11%,transparent);border-color:var(--warn)}
+  .v-ok{background:color-mix(in srgb,var(--accent) 11%,transparent);border-color:var(--accent)}
+  .verdict b{display:block;margin-bottom:3px}
+
+  /* config */
+  .cfg{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end;margin-top:4px}
+  .fld label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:4px}
+  .fld input,.fld select{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font:inherit;width:92px}
+  .hint{color:var(--muted);font-size:11.5px;margin-top:6px}
+
+  /* week */
+  .batch{border:1px solid var(--line);border-radius:var(--r);margin-bottom:9px;overflow:hidden}
+  .bhead{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:10px 13px;background:var(--panel);flex-wrap:wrap}
+  .bname{font-weight:600}
+  .bmeta{color:var(--muted);font-size:11.5px;font-variant-numeric:tabular-nums}
+  .bslots{padding:8px 13px 11px;display:flex;flex-wrap:wrap;gap:5px}
+  .slot{background:var(--chip);border-radius:5px;padding:3px 8px;font-size:11.5px;color:var(--muted)}
+  .tierdot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px}
+
+  /* list */
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;padding:7px 8px;border-bottom:1px solid var(--line)}
+  td{padding:7px 8px;border-bottom:1px solid var(--line)}
+  tbody tr:last-child td{border-bottom:none}
+  .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .rayon td{background:var(--panel);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;padding:6px 8px}
+  td input{background:transparent;color:var(--fg);border:1px solid transparent;border-radius:5px;padding:3px 5px;width:72px;text-align:right;font:inherit;font-variant-numeric:tabular-nums}
+  td input:hover{border-color:var(--line)}
+  td input:focus{border-color:var(--accent);outline:none;background:var(--bg)}
+  .edited{color:var(--accent);font-weight:600}
+
+  .btn{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:6px 11px;font:inherit;font-size:12.5px;cursor:pointer}
+  .btn:hover{border-color:var(--muted)}
+  .row{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px;align-items:center}
+  .badge{display:inline-block;background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn);border-radius:5px;padding:2px 7px;font-size:11px;font-weight:600}
+  .ok-badge{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
+  details{margin-top:9px}
+  summary{cursor:pointer;color:var(--muted);font-size:12.5px}
+  footer{margin-top:26px;padding-top:13px;border-top:1px solid var(--line);color:var(--muted);font-size:11.5px}
+  footer p{margin:5px 0}
+  code{background:var(--chip);padding:1px 5px;border-radius:4px;font-size:11.5px}
+  textarea{width:100%;height:90px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:8px;font:11.5px/1.45 ui-monospace,Menlo,Consolas,monospace;margin-top:7px}
+</style>
+</head>
+<body>
+
+<h1>Garde-manger</h1>
+<p class="sub">Planificateur de repas sous contrainte budgétaire — sans congélateur. Tu fixes le budget, l'outil sacrifie et te dit ce qu'il a sacrifié.</p>
+
+<div class="panel">
+  <div class="budgetwrap">
+    <div>
+      <div class="bignum" id="bnum">30 <span>€ / semaine</span></div>
+    </div>
+  </div>
+  <input type="range" id="budget" min="30" max="100" step="1" value="30">
+  <div class="ticks"><span>30 €</span><span>45 €</span><span>60 €</span><span>75 €</span><span>100 €</span></div>
+
+  <div class="gauge"><i id="gfill"></i><div class="floormark" id="fmark"></div></div>
+  <div class="hint">Remplissage = ton budget rapporté au plancher nutritionnel. Le trait vertical marque les 100 % : <span id="floorEur"></span> par semaine pour ton foyer.</div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="k">Par jour</div><div class="v" id="kDay">—</div></div>
+    <div class="kpi"><div class="k">Par assiette</div><div class="v" id="kPlate">—</div></div>
+    <div class="kpi"><div class="k">% du plancher</div><div class="v" id="kFloor">—</div></div>
+    <div class="kpi"><div class="k">Protéines / j / pers</div><div class="v" id="kProt">—</div></div>
+    <div class="kpi"><div class="k">kcal / j / pers</div><div class="v" id="kCal">—</div></div>
+  </div>
+
+  <div class="verdict" id="verdict"></div>
+</div>
+
+<h2>Ton foyer</h2>
+<div class="panel">
+  <div class="cfg">
+    <div class="fld">
+      <label>Équivalents-adultes</label>
+      <input type="number" id="eq" min="1" max="8" step="0.5" value="3">
+    </div>
+    <div class="fld">
+      <label>Repas / jour</label>
+      <select id="rpj"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option></select>
+    </div>
+    <div class="fld">
+      <label>Gaspillage</label>
+      <select id="gasp">
+        <option value="0">0 %</option>
+        <option value="0.05">5 %</option>
+        <option value="0.1" selected>10 %</option>
+        <option value="0.2">20 %</option>
+      </select>
+    </div>
+  </div>
+  <div class="hint">Un « équivalent-adulte » = une ration adulte standard. Si quelqu'un mange double, compte-le 2. Le gaspillage gonfle les quantités à acheter : sans congélateur c'est le premier poste de fuite.</div>
+</div>
+
+<h2>La semaine <span id="weekcount" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h2>
+<div id="week"></div>
+
+<h2>Liste de courses</h2>
+<div class="panel" style="padding:0;overflow:hidden">
+  <table id="shop"><thead><tr><th>Produit</th><th>Où</th><th class="num">Quantité</th><th class="num">Prix /kg</th><th class="num">Coût</th></tr></thead><tbody></tbody></table>
+</div>
+<div class="row">
+  <span class="badge" id="calibBadge">Prix non calibrés</span>
+  <button class="btn" id="copyList">Copier la liste</button>
+  <button class="btn" id="resetPrices">Réinitialiser les prix</button>
+</div>
+<div class="hint">Les prix de la colonne « Prix /kg » sont modifiables : clique dessus et remplace par <b>tes</b> prix relevés en magasin. Chaque prix que tu corriges rend tout le reste de l'outil plus juste.</div>
+
+<details>
+  <summary>Sauvegarder / restaurer mes prix</summary>
+  <textarea id="jsonbox" spellcheck="false" placeholder="Clique sur Exporter pour copier tes prix, ou colle ici une sauvegarde puis Importer."></textarea>
+  <div class="row">
+    <button class="btn" id="exportP">Exporter</button>
+    <button class="btn" id="importP">Importer</button>
+  </div>
+</details>
+
+<footer>
+  <p><b>Plancher nutritionnel</b> — 3,50 € par jour et par personne pour 3 repas, établi par Nicole Darmon (INRAE) comme minimum pour couvrir les besoins nutritionnels. Pondéré ici à 80 % pour 2 repas, 45 % pour 1 repas. Ce chiffre provient de travaux antérieurs à l'inflation alimentaire récente : le plancher réel aujourd'hui est probablement plus haut.</p>
+  <p><b>Composition des aliments</b> — ordres de grandeur de type Ciqual (ANSES), arrondis. À confirmer sur la table officielle avant tout usage médical.</p>
+  <p><b>Prix d'amorçage</b> — non vérifiés en magasin. Ce sont des valeurs de départ plausibles en hard discount, destinées à être remplacées par tes relevés réels. Tant que le badge indique « non calibrés », aucun montant affiché ici ne doit être tenu pour exact.</p>
+  <p><b>Arbitrage sous contrainte</b> — quand la contrainte de coût se resserre, la littérature montre un déplacement vers œufs, légumineuses, lait, conserves, racines, noix et fruits secs, et un retrait de la viande, du poisson frais et des fruits et légumes frais. C'est la logique appliquée par les paliers ci-dessus.</p>
+</footer>
+
+<script>
+"use strict";
+
+/* ---------- Ingrédients : prix €/kg (amorçage, non vérifiés), prot g/100g, kcal/100g ---------- */
+const ING = {
+  riz:            {n:"Riz long",                  p:1.40, prot:7,    kcal:350, r:"Épicerie sèche", m:"Hard discount"},
+  pates:          {n:"Pâtes sèches",              p:1.10, prot:12,   kcal:355, r:"Épicerie sèche", m:"Hard discount"},
+  semoule:        {n:"Semoule de blé",            p:1.50, prot:12,   kcal:350, r:"Épicerie sèche", m:"Épicerie orientale"},
+  farine:         {n:"Farine T65",                p:0.90, prot:10,   kcal:340, r:"Épicerie sèche", m:"Hard discount"},
+  lentCorail:     {n:"Lentilles corail",          p:3.20, prot:24,   kcal:330, r:"Légumes secs",   m:"Épicerie orientale"},
+  lentVertes:     {n:"Lentilles vertes",          p:2.80, prot:24,   kcal:330, r:"Légumes secs",   m:"Hard discount"},
+  poisChiches:    {n:"Pois chiches secs",         p:2.20, prot:19,   kcal:340, r:"Légumes secs",   m:"Épicerie orientale"},
+  haricotsR:      {n:"Haricots rouges secs",      p:2.50, prot:22,   kcal:330, r:"Légumes secs",   m:"Épicerie orientale"},
+  poisCasses:     {n:"Pois cassés",               p:2.00, prot:23,   kcal:330, r:"Légumes secs",   m:"Hard discount"},
+  pdt:            {n:"Pommes de terre",           p:1.20, prot:2,    kcal:77,  r:"Légumes",        m:"Marché / primeur"},
+  carotte:        {n:"Carottes",                  p:1.10, prot:0.8,  kcal:36,  r:"Légumes",        m:"Marché / primeur"},
+  oignon:         {n:"Oignons",                   p:1.20, prot:1.2,  kcal:40,  r:"Légumes",        m:"Marché / primeur"},
+  ail:            {n:"Ail",                       p:6.00, prot:6,    kcal:130, r:"Légumes",        m:"Marché / primeur"},
+  poireau:        {n:"Poireaux",                  p:2.00, prot:1.5,  kcal:30,  r:"Légumes",        m:"Marché / primeur"},
+  chou:           {n:"Chou",                      p:1.30, prot:1.3,  kcal:25,  r:"Légumes",        m:"Marché / primeur"},
+  chouFleur:      {n:"Chou-fleur",                p:2.20, prot:1.9,  kcal:25,  r:"Légumes",        m:"Marché / primeur"},
+  courge:         {n:"Courge butternut",          p:1.50, prot:1,    kcal:34,  r:"Légumes",        m:"Marché / primeur"},
+  poivron:        {n:"Poivrons",                  p:3.00, prot:1,    kcal:26,  r:"Légumes",        m:"Marché / primeur"},
+  tomateBoite:    {n:"Tomates concassées (boîte)",p:1.20, prot:1.2,  kcal:20,  r:"Conserves",      m:"Hard discount"},
+  tomateConc:     {n:"Concentré de tomate",       p:3.50, prot:4.8,  kcal:80,  r:"Conserves",      m:"Hard discount"},
+  oeuf:           {n:"Œufs",                      p:4.20, prot:12.5, kcal:143, r:"Frais",          m:"Hard discount"},
+  lait:           {n:"Lait demi-écrémé",          p:0.90, prot:3.2,  kcal:46,  r:"Frais",          m:"Hard discount"},
+  huile:          {n:"Huile de tournesol",        p:2.00, prot:0,    kcal:900, r:"Épicerie sèche", m:"Hard discount"},
+  sardines:       {n:"Sardines à l'huile",        p:6.50, prot:24,   kcal:220, r:"Conserves",      m:"Hard discount"},
+  thon:           {n:"Thon au naturel",           p:9.00, prot:26,   kcal:110, r:"Conserves",      m:"Hard discount"},
+  poulet:         {n:"Cuisses de poulet",         p:3.50, prot:18,   kcal:180, r:"Frais",          m:"Grande surface"},
+  poisson:        {n:"Filet de poisson blanc",    p:9.00, prot:18,   kcal:85,  r:"Frais",          m:"Grande surface"},
+  laitCoco:       {n:"Lait de coco",              p:2.50, prot:2,    kcal:190, r:"Conserves",      m:"Épicerie asiatique"},
+  epices:         {n:"Épices (cumin, curry, paprika)", p:15.00, prot:10, kcal:300, r:"Épicerie sèche", m:"Épicerie orientale"},
+  citron:         {n:"Citrons",                   p:2.50, prot:1,    kcal:30,  r:"Légumes",        m:"Marché / primeur"}
+};
+
+/* ---------- Plats : grammes par ration adulte. cons = jours au frigo. tier = palier budgétaire ---------- */
+/* Chaque plat est calibré comme un repas complet : ~750-900 kcal et ≥26 g de protéines
+   par ration adulte. Monter en budget change donc la QUALITÉ, jamais la suffisance. */
+const PLATS = [
+  {id:"dal",     n:"Dal de lentilles corail + riz",            tier:0, cons:4, i:{lentCorail:90, riz:105, oignon:50, tomateConc:15, huile:12, epices:3, ail:4}},
+  {id:"chili",   n:"Chili sin carne + riz",                    tier:0, cons:4, i:{haricotsR:90, riz:105, oignon:60, tomateBoite:150, huile:12, epices:3, ail:4}},
+  {id:"pc",      n:"Pois chiches rôtis au four, semoule",      tier:0, cons:4, i:{poisChiches:95, semoule:100, oignon:50, huile:14, epices:3, citron:20}},
+  {id:"soupe",   n:"Soupe épaisse lentilles-carottes + pain",  tier:0, cons:4, i:{lentVertes:70, carotte:150, pdt:200, oignon:50, huile:12, farine:80}},
+  {id:"pates",   n:"Pâtes bolognaise de lentilles",            tier:0, cons:3, i:{pates:160, tomateBoite:180, lentCorail:30, oignon:50, ail:5, huile:14}},
+  {id:"poisc",   n:"Purée de pois cassés, oignons frits",      tier:0, cons:4, i:{poisCasses:95, pdt:150, oignon:70, huile:14, epices:2, farine:50}},
+
+  {id:"gratinp", n:"Gratin de pâtes béchamel",                 tier:1, cons:3, i:{pates:140, lait:180, farine:18, huile:12, oignon:40, oeuf:55}},
+  {id:"rizoeuf", n:"Riz sauté aux œufs et légumes",            tier:1, cons:2, i:{riz:130, oeuf:110, carotte:80, oignon:50, huile:14, poisChiches:20}},
+  {id:"patethon",n:"Pâtes au thon et tomate",                  tier:1, cons:2, i:{pates:150, thon:60, tomateBoite:160, oignon:40, huile:12, ail:4}},
+  {id:"sardine", n:"Salade de pommes de terre aux sardines",   tier:1, cons:2, i:{pdt:380, sardines:70, oignon:40, huile:8, citron:20, farine:60}},
+  {id:"tortilla",n:"Tortilla pommes de terre-oignon",          tier:1, cons:3, i:{pdt:300, oeuf:165, oignon:70, huile:16, farine:50}},
+  {id:"shak",    n:"Shakshuka œufs-tomates-poivrons",          tier:1, cons:2, i:{oeuf:165, tomateBoite:220, poivron:80, oignon:50, huile:14, farine:95, epices:3}},
+
+  {id:"ratat",   n:"Légumes d'hiver rôtis, pois chiches, semoule", tier:2, cons:4, i:{courge:180, carotte:120, oignon:60, semoule:100, huile:16, epices:3, ail:5, poisChiches:55}},
+  {id:"patsard", n:"Pâtes aux sardines, tomate et citron",     tier:2, cons:2, i:{pates:140, sardines:60, tomateBoite:150, oignon:40, huile:10, ail:4, citron:15}},
+  {id:"curry",   n:"Curry de chou-fleur au lait de coco + riz",tier:2, cons:3, i:{chouFleur:160, carotte:90, laitCoco:80, riz:95, oignon:50, huile:10, epices:4, poisChiches:70}},
+  {id:"poireau", n:"Poireaux-pommes de terre, œuf poché",      tier:2, cons:3, i:{poireau:200, pdt:300, oeuf:110, huile:12, lait:60, farine:50}},
+  {id:"gratincf",n:"Gratin de chou-fleur béchamel",            tier:2, cons:3, i:{chouFleur:280, lait:180, farine:70, huile:12, pdt:320, oeuf:55}},
+
+  {id:"poulet",  n:"Cuisses de poulet rôties + racines",       tier:3, cons:3, i:{poulet:170, pdt:320, carotte:120, oignon:50, huile:12, epices:3, farine:30}},
+  {id:"pouletv", n:"Poulet, chou-fleur rôti et riz",           tier:3, cons:3, i:{poulet:180, chouFleur:150, riz:100, oignon:50, huile:12, epices:3}},
+  {id:"poissonp",n:"Poisson blanc poêlé, purée maison",        tier:3, cons:1, i:{poisson:140, pdt:400, lait:50, huile:16, citron:20, farine:40}}
+];
+
+const TIERCOL = ["#8a8a8a","#3f7fa8","#2f8f5f","#b06c1e"];
+const TIERNOM = ["Socle légumineuses","Œufs & conserves","Légumes frais","Viande / poisson"];
+
+/* ---------- état ---------- */
+let prices = {};
+let edited = {};
+Object.keys(ING).forEach(k => prices[k] = ING[k].p);
+
+try{
+  const s = localStorage.getItem("gm_prices_v1");
+  if(s){ const o = JSON.parse(s); Object.keys(o).forEach(k=>{ if(k in prices){ prices[k]=o[k]; edited[k]=true; } }); }
+}catch(e){}
+
+function savePrices(){ try{ const o={}; Object.keys(edited).forEach(k=>o[k]=prices[k]); localStorage.setItem("gm_prices_v1",JSON.stringify(o)); }catch(e){} }
+
+/* ---------- calculs ---------- */
+const coutPortion = p => Object.entries(p.i).reduce((s,[k,g]) => s + g/1000*prices[k], 0);
+const protPortion = p => Object.entries(p.i).reduce((s,[k,g]) => s + g/100*ING[k].prot, 0);
+const kcalPortion = p => Object.entries(p.i).reduce((s,[k,g]) => s + g/100*ING[k].kcal, 0);
+
+function plancherParJour(rpj){ return 3.50 * (rpj===3 ? 1 : rpj===2 ? 0.80 : 0.45); }
+
+/* Construit la semaine : part du socle, puis remplace le créneau le moins cher
+   par la meilleure montée en gamme tant que le budget le permet. */
+function construireSemaine(budget, eq, rpj, gasp){
+  const nSlots = 7*rpj;
+  const facteur = eq*(1+gasp);
+  const cost = p => coutPortion(p)*facteur;
+
+  const parTier = t => PLATS.filter(p=>p.tier===t).sort((a,b)=>coutPortion(a)-coutPortion(b));
+  const socle = parTier(0);
+
+  // départ : rotation sur le socle
+  let slots = [];
+  for(let i=0;i<nSlots;i++) slots.push(socle[i % socle.length]);
+
+  const total = s => s.reduce((a,p)=>a+cost(p),0);
+
+  // montée en gamme : à chaque tour, la substitution la moins chère qui tient dans le budget
+  let garde = 0;
+  while(garde++ < 400){
+    let best=null;
+    for(let i=0;i<slots.length;i++){
+      for(const t of [1,2,3]){
+        for(const cand of parTier(t)){
+          const dejaDansLaSemaine = slots.filter((s,j)=>j!==i && s.id===cand.id).length;
+          if(dejaDansLaSemaine >= 2) continue;            // variété : 2 occurrences max
+          const delta = cost(cand) - cost(slots[i]);
+          if(delta <= 0) continue;
+          if(total(slots) + delta > budget) continue;
+          if(!best || delta < best.delta) best = {i, cand, delta};
+        }
+      }
+    }
+    if(!best) break;
+    slots[best.i] = best.cand;
+  }
+  const plafond = garde < 400 && total(slots) < budget*0.97;
+
+  // regroupement en lots respectant la conservation au frigo
+  const ordre = [...slots].sort((a,b)=> a.tier-b.tier || coutPortion(a)-coutPortion(b));
+  const compte = new Map();
+  ordre.forEach(p => compte.set(p.id,(compte.get(p.id)||0)+1));
+
+  const jours = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"];
+  const noms  = rpj===1 ? ["dîner"] : rpj===2 ? ["midi","soir"] : ["matin","midi","soir"];
+  const creneaux = [];
+  for(let d=0; d<7; d++) for(let m=0; m<rpj; m++) creneaux.push(jours[d]+" "+noms[m]);
+
+  const lots=[]; let idx=0;
+  for(const [id,n] of compte){
+    const plat = PLATS.find(p=>p.id===id);
+    let reste = n;
+    while(reste>0){
+      const maxLot = Math.min(reste, plat.cons*rpj, 4);
+      lots.push({plat, slots:creneaux.slice(idx, idx+maxLot), n:maxLot});
+      idx += maxLot; reste -= maxLot;
+    }
+  }
+  return {slots, lots, facteur, nSlots, plafond, reel: total(slots)};
+}
+
+function listeCourses(slots, facteur){
+  const agg = {};
+  slots.forEach(p => Object.entries(p.i).forEach(([k,g]) => { agg[k] = (agg[k]||0) + g*facteur; }));
+  const rows = Object.entries(agg).map(([k,g]) => ({k, g, cout:g/1000*prices[k]}));
+  const ordreRayon = ["Légumes secs","Épicerie sèche","Conserves","Légumes","Frais"];
+  rows.sort((a,b)=>{
+    const ra = ordreRayon.indexOf(ING[a.k].r), rb = ordreRayon.indexOf(ING[b.k].r);
+    return ra-rb || b.cout-a.cout;
+  });
+  return rows;
+}
+
+/* ---------- rendu ---------- */
+const $ = id => document.getElementById(id);
+const eur = v => v.toFixed(2).replace(".",",")+" €";
+const qte = g => g>=1000 ? (g/1000).toFixed(2).replace(".",",")+" kg" : Math.round(g)+" g";
+
+function render(){
+  const budget = +$("budget").value;
+  const eq = +$("eq").value || 1;
+  const rpj = +$("rpj").value;
+  const gasp = +$("gasp").value;
+
+  $("bnum").innerHTML = budget + ' <span>€ / semaine</span>';
+
+  const plancherJ = plancherParJour(rpj);
+  const plancherSem = plancherJ*eq*7;
+  const ratio = budget/plancherSem;
+
+  // jauge : remplissage = budget en % du plancher, échelle 0-150 %, repère à 100 %
+  const col = ratio<0.7 ? "var(--bad)" : ratio<1 ? "var(--warn)" : "var(--accent)";
+  $("gfill").style.width = Math.max(2, Math.min(100, ratio/1.5*100))+"%";
+  $("gfill").style.background = col;
+  $("fmark").style.left = (100/1.5)+"%";
+  $("fmark").style.display = "block";
+  $("floorEur").textContent = eur(plancherSem);
+
+  const {slots, lots, facteur, nSlots, plafond, reel} = construireSemaine(budget, eq, rpj, gasp);
+  const protJ = slots.reduce((a,p)=>a+protPortion(p),0)/7;
+  const calJ  = slots.reduce((a,p)=>a+kcalPortion(p),0)/7;
+
+  // cibles par équivalent-adulte et par jour, au prorata du nombre de repas
+  const calCible  = Math.round(2000*(rpj===3?1:rpj===2?0.80:0.45));
+  const protCible = Math.round(62*(rpj===3?1:rpj===2?0.80:0.45));
+
+  $("kDay").textContent   = eur(budget/7);
+  $("kPlate").textContent = eur(budget/(nSlots*eq));
+  $("kFloor").textContent = Math.round(ratio*100)+" %";
+  $("kFloor").style.color = col;
+  $("kProt").textContent  = Math.round(protJ)+" g";
+  $("kProt").style.color  = protJ>=protCible ? "var(--accent)" : "var(--bad)";
+  $("kCal").textContent   = Math.round(calJ);
+  $("kCal").style.color   = calJ>=calCible*0.92 ? "var(--accent)" : "var(--bad)";
+  document.querySelector("#kProt").previousElementSibling.textContent = "Protéines /j (cible "+protCible+"g)";
+  document.querySelector("#kCal").previousElementSibling.textContent  = "kcal /j (cible "+calCible+")";
+
+  // verdict
+  const v = $("verdict");
+  const manque = eur(Math.max(0, plancherSem-budget));
+  if(ratio < 0.7){
+    v.className = "verdict v-bad";
+    v.innerHTML = "<b>Déficit structurel — "+Math.round(ratio*100)+" % du plancher.</b>"+
+      "Il te manque "+manque+" par semaine pour atteindre le minimum documenté. En dessous de ce seuil, ce qui décroche en premier n'est pas l'énergie mais les micronutriments : fer, calcium, B12, oméga-3, vitamine D. Le plan ci-dessous est le meilleur arrangement possible à ce budget — il n'est pas suffisant, et je ne vais pas prétendre l'inverse.";
+  } else if(ratio < 1){
+    v.className = "verdict v-warn";
+    v.innerHTML = "<b>Tendu mais dans la zone — "+Math.round(ratio*100)+" % du plancher.</b>"+
+      "Tenable à trois conditions : zéro gaspillage, zéro viande ou poisson frais hors promo, et cuisine maison intégrale. Il te manque "+manque+" pour être confortablement au-dessus du seuil.";
+  } else {
+    v.className = "verdict v-ok";
+    v.innerHTML = "<b>Au-dessus du plancher — "+Math.round(ratio*100)+" %.</b>"+
+      "À ce niveau la couverture nutritionnelle est atteignable sans renoncement majeur. L'enjeu bascule du « est-ce que je peux manger » vers « est-ce que je mange bien ».";
+  }
+  if(plafond){
+    v.innerHTML += "<br><br><b style='display:inline'>Plafond atteint à "+eur(reel)+".</b> "+
+      "Le répertoire de plats ne sait pas dépenser plus sans se répéter. Les "+eur(budget-reel)+
+      " restants ne sont pas une marge à dépenser en volume : ils vont en qualité — bio sur les produits à peau fine, poisson gras frais, circuit court, ou simplement en épargne.";
+  }
+
+  // semaine
+  $("weekcount").textContent = "— "+nSlots+" créneaux, "+lots.length+" cuissons, "+eur(reel)+" de matière première";
+  $("week").innerHTML = lots.map(l=>{
+    const c = coutPortion(l.plat);
+    return '<div class="batch"><div class="bhead"><div class="bname">'+
+      '<span class="tierdot" style="background:'+TIERCOL[l.plat.tier]+'"></span>'+l.plat.n+'</div>'+
+      '<div class="bmeta">'+eur(c)+' / ration · '+Math.round(l.n*facteur)+' rations à cuire · se garde '+l.plat.cons+' j</div></div>'+
+      '<div class="bslots">'+l.slots.map(s=>'<span class="slot">'+s+'</span>').join("")+'</div></div>';
+  }).join("");
+
+  // courses
+  const rows = listeCourses(slots, facteur);
+  const tb = $("shop").querySelector("tbody");
+  let html = "", rayon = null;
+  rows.forEach(r=>{
+    if(ING[r.k].r !== rayon){ rayon = ING[r.k].r; html += '<tr class="rayon"><td colspan="5">'+rayon+'</td></tr>'; }
+    html += '<tr><td>'+ING[r.k].n+'</td><td style="color:var(--muted);font-size:12px">'+ING[r.k].m+'</td>'+
+      '<td class="num">'+qte(r.g)+'</td>'+
+      '<td class="num"><input type="number" step="0.05" min="0" data-k="'+r.k+'" value="'+prices[r.k].toFixed(2)+'" class="'+(edited[r.k]?"edited":"")+'"></td>'+
+      '<td class="num">'+eur(r.cout)+'</td></tr>';
+  });
+  const totMat = rows.reduce((a,r)=>a+r.cout,0);
+  html += '<tr><td colspan="4" style="font-weight:600">Total matière première</td><td class="num" style="font-weight:600">'+eur(totMat)+'</td></tr>';
+  tb.innerHTML = html;
+
+  tb.querySelectorAll("input").forEach(inp=>{
+    inp.addEventListener("change", e=>{
+      const k = e.target.dataset.k, val = parseFloat(e.target.value);
+      if(!isNaN(val) && val>=0){ prices[k]=val; edited[k]=true; savePrices(); render(); }
+    });
+  });
+
+  const nEd = Object.keys(edited).length, nTot = Object.keys(ING).length;
+  const b = $("calibBadge");
+  if(nEd===0){ b.textContent="Prix non calibrés"; b.className="badge"; }
+  else if(nEd<nTot){ b.textContent=nEd+" / "+nTot+" prix calibrés"; b.className="badge"; }
+  else { b.textContent="Tous les prix calibrés"; b.className="badge ok-badge"; }
+}
+
+/* ---------- interactions ---------- */
+["budget","eq","rpj","gasp"].forEach(id=>{
+  $(id).addEventListener("input", render);
+  $(id).addEventListener("change", render);
+});
+
+$("copyList").addEventListener("click", async ()=>{
+  const budget=+$("budget").value, eq=+$("eq").value, rpj=+$("rpj").value, gasp=+$("gasp").value;
+  const {slots, facteur} = construireSemaine(budget, eq, rpj, gasp);
+  const rows = listeCourses(slots, facteur);
+  let txt="LISTE DE COURSES — budget "+budget+" €/semaine\n\n", rayon=null;
+  rows.forEach(r=>{
+    if(ING[r.k].r!==rayon){ rayon=ING[r.k].r; txt+="\n== "+rayon.toUpperCase()+" ==\n"; }
+    txt += "[ ] "+ING[r.k].n+" — "+qte(r.g)+" — "+eur(r.cout)+"  ("+ING[r.k].m+")\n";
+  });
+  txt += "\nTOTAL : "+eur(rows.reduce((a,r)=>a+r.cout,0));
+  try{ await navigator.clipboard.writeText(txt); $("copyList").textContent="Copié"; setTimeout(()=>$("copyList").textContent="Copier la liste",1400); }
+  catch(e){ $("jsonbox").value=txt; $("jsonbox").closest("details").open=true; }
+});
+
+$("resetPrices").addEventListener("click", ()=>{
+  Object.keys(ING).forEach(k=>prices[k]=ING[k].p);
+  edited={}; savePrices(); render();
+});
+
+$("exportP").addEventListener("click", ()=>{
+  const o={}; Object.keys(edited).forEach(k=>o[k]=prices[k]);
+  $("jsonbox").value = JSON.stringify(o,null,1);
+});
+
+$("importP").addEventListener("click", ()=>{
+  try{
+    const o=JSON.parse($("jsonbox").value);
+    Object.keys(o).forEach(k=>{ if(k in prices){ prices[k]=+o[k]; edited[k]=true; } });
+    savePrices(); render(); $("jsonbox").value="Importé.";
+  }catch(e){ $("jsonbox").value="Format illisible — colle le JSON exporté tel quel."; }
+});
+
+render();
+</script>
+</body>
+</html>
